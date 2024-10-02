@@ -1,2 +1,3 @@
-# testes-rPTR
-Systematic inference of post transcriptional regulation in primary human testes
+# BayesPG
+
+Pipeline to carry out the systematic inference of post transcriptional regulation using single cell protein and mRNA data. 
