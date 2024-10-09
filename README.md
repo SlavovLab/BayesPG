@@ -4,7 +4,7 @@
 
 *Currently a work in progress. Please bear with us while we upload all code to repositories in the coming days.*
 
-This repository hosts the code for our workflow to systematically infer differences in the relative protein-to-mRNA ratios across cell types in primary human testis cells. We developed **BayesPG**, a hierarchical Bayesian model that jointly models cluster-level mRNA and protein estimates obtained from single-cell data.
+This repository hosts code for our workflow to systematically infer post transcriptional regulation as reflected in differences between relative protein and mRNA levels. To account for and distinguish between sources of variation in our data, we developed BayesPG, a hierarchical Bayesian model. BayesPG jointly models cell type level mRNA and protein estimates obtained from single-cell data. We employed BayesPG to quantitatively explore post transcriptional regulation in primary human testis cells. 
 
 ### Workflow Overview:
 
