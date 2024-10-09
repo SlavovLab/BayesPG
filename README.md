@@ -4,7 +4,7 @@
 
 *Currently a work in progress. Please bear with us while we upload all code to repositories in the coming days.*
 
-This repository hosts the code for our workflow that systematically infers differences in the relative protein-to-mRNA ratios across cell types in primary human testis cells. We developed **BayesPG**, a hierarchical Bayesian model that jointly models cluster-level mRNA and protein estimates obtained from single-cell data.
+This repository hosts the code for our workflow to systematically infer differences in the relative protein-to-mRNA ratios across cell types in primary human testis cells. We developed **BayesPG**, a hierarchical Bayesian model that jointly models cluster-level mRNA and protein estimates obtained from single-cell data.
 
 ### Workflow Overview:
 
@@ -13,7 +13,7 @@ The workflow is divided into three main stages:
 1. **Data Generation and Preprocessing** (`001-MSData`)  
    This stage includes scripts used for acquiring and processing pSCoPE and plexDIA data. This includes various helper scripts for data acquisition or database searches, such as inclusion list generation and spectral library IM prediction.
 
-2. **Single-Cell Matrix Processing**  
+2. **Single-Cell Matrix Processing** (`002-singleCell_data`)  
    Scripts for generating, processing and working with single-cell matrices (protein and mRNA). This stage includes:
    - Normalization and batch correction.
    - Feature selection for dataset alignment using correlation vector analysis.
