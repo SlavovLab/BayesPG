@@ -31,7 +31,6 @@ if(length(parse_row)>0){
   ev$Leading.razor.protein[parse_row]<-split_prot2
 }
 # Load experimental design and batches
-
 design<-as.data.frame(read_csv("2024_Khan.Elcheikhali_testes_rPTR/001-MSData/002-auxiliaryFiles/npop1_annotation.csv"))
 
 # Create unique peptide+charge column:
@@ -71,8 +70,8 @@ ev<-as.data.frame(ev)
 ev[, ri.index] <- ev[, ri.index] / ev[, ri.index[ref_channel]]
 
 # Organize data into a more convenient data structure:
-ev.melt_init <-reshape2::melt(ev[, c("Raw.file","modseq","Leading.razor.protein","lcbatch","sortday","digest", colnames(ev)[ri.index]) ],
-                              id.vars = c("Raw.file","modseq","Leading.razor.protein","lcbatch","sortday","digest"));
+ev.melt_init <-reshape2::melt(ev[, c("Raw.file","modseq","Leading.razor.protein", colnames(ev)[ri.index]) ],
+                              id.vars = c("Raw.file","modseq","Leading.razor.protein"));
 
 ev.melt_init$variable <- gsub("Reporter.intensity.","RI",ev.melt_init$variable)
 
@@ -82,7 +81,7 @@ design_melt <- design_melt[order(design_melt$Set),]
 design_melt$id <- paste0("i", 1:nrow(design_melt))
 
 ev.melt <- left_join(ev.melt_init, design_melt, by = c("Raw.file" = "Set", "variable")) %>% select(-variable)
-colnames(ev.melt)<-c("Raw.file","sequence","protein","lcbatch","sortday","digest","quantitation","celltype","id")
+colnames(ev.melt)<-c("Raw.file","sequence","protein","quantitation","celltype","id")
 
 
 # Grab the unique number associate to each and every cell, carrier channel, and empty channel
