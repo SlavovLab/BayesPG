@@ -343,6 +343,31 @@ ggscatter(PCA_final, x = 'PC1', y = 'PC2', color = 'cellType', size = 1, alpha=0
 
 
 #### Compute Distance Ratios and plot old vs new alignments (Ext Fig 2B, Right most panel))
+# Read in files for old alignment
+nPoP1_cellIds <- read.table("2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/oldAlignment_forFigureOnly/oldAlign_npop1.txt", header = TRUE, stringsAsFactors = F)
+nPoP2_cellIds <- read.table("2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/oldAlignment_forFigureOnly/oldAlign_npop2.txt", header = TRUE, stringsAsFactors = F)
+nPoP3_cellIds <- read.table("2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/oldAlignment_forFigureOnly/oldAlign_npop3.txt", header = TRUE, stringsAsFactors = F)
+nPoP4_cellIds <- read.table("2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/oldAlignment_forFigureOnly/oldAlign_npop4.txt", header = TRUE, stringsAsFactors = F)
+nPoP5_cellIds <- read.table("2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/oldAlignment_forFigureOnly/oldAlign_npop5.txt", header = TRUE, stringsAsFactors = F)
+
+# Set for joins
+nPoP1_cellIds$id <- paste0("One_",nPoP1_cellIds$id)
+nPoP2_cellIds$id <- paste0("Two_",nPoP2_cellIds$id)
+nPoP3_cellIds$id <- paste0("Three_",nPoP3_cellIds$id)
+nPoP4_cellIds$id <- paste0("Four_",nPoP4_cellIds$id)
+nPoP5_cellIds$id <- paste0("Five_",nPoP5_cellIds$id)
+
+# bind
+nPoP_cellIds <- rbind(nPoP1_cellIds,nPoP2_cellIds,nPoP3_cellIds,nPoP4_cellIds,nPoP5_cellIds)
+
+
+
+
+
+
+
+
+
 # Decide on threshold and compute Mahalonobis of sorts
 perVarthresh <- length(percent_var[cumsum(percent_var) < 25])
 PCA_ForDists <- scx[, c(1:perVarthresh, which(colnames(scx) == "id"))]
@@ -354,7 +379,7 @@ dist_matrix <- as.matrix(dist(PCA_ForDists))
 
 # Some sanity chex and things
 nPoP_cellIds_new <- all_ProtLabels[match(colnames(dist_matrix), all_ProtLabels$id),]
-nPoP_cellIds_old <- nPoP_cellIds2[match(colnames(dist_matrix), nPoP_cellIds2$id),]
+nPoP_cellIds_old <- nPoP_cellIds[match(colnames(dist_matrix), nPoP_cellIds$id),]
 
 ## Define functions to compute distance ratios
 # Cleanly collect median distance within each cluster
