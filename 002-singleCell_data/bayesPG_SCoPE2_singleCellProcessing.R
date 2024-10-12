@@ -248,7 +248,9 @@ hist(c(t3), breaks=b.t, xlim=xlim.t)
 
 
 ## Collapse to protein level by median:
-# Important little interlude here, so, while processing this dataset we found a sequence of mass spec runs that had a pretty large batch effect (much higher intensities), we batch corrected for it and have read the file in below, so ordinarily you wouldn't read the file in and proceed. We've outlined the MS runs (more specifically cells) in another file for the variable modification PTM evidence file: 2024_Khan.Elcheikhali_testes_rPTR/001-MSData/002-auxiliaryFiles/004-varModSearches/npop1_secondClusterCells_DART.PTM.csv
+### Important little interlude here: 
+# 1) so, while processing this dataset we found a sequence of mass spec runs that had a pretty large batch effect (much higher intensities), we batch corrected for it and have read the file in below, so ordinarily you wouldn't read the file in and proceed. We've outlined the MS runs (more specifically cells) in another file for the variable modification PTM evidence file: 2024_Khan.Elcheikhali_testes_rPTR/001-MSData/002-auxiliaryFiles/004-varModSearches/npop1_secondClusterCells_DART.PTM.csv
+# 2) While processing nPoP dataset 3, we also encountered a cluster of single cell sets which had higher levels of missing data as comapred to the rest of the cells and so we removed thsoe before write out the matrices
 
 t3m<-data.frame(t3)
 t3m$pep<-rownames(t3)

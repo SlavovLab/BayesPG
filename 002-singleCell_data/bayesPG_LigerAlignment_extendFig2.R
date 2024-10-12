@@ -27,13 +27,13 @@ evo_ready[["percent.rb"]] <- PercentageFeatureSet(evo_ready, pattern = "^RP[SL]"
 evo_ready <- RenameCells(evo_ready[["RNA"]],new.names = paste0("evo_", colnames(x = evo_ready[["RNA"]])))
 
 ## Read in Protein data = Single batch corrected matrix across the five preps
-testesAllFiveComb <- read.table(file = "/Users/saadkhan/Desktop/allOurThingsTemp/testis/LIGER/propGetVarGenes_250922/testis_AllFivePreps_BCdTogether_filtered.txt", sep = "\t", header = TRUE, stringsAsFactors = F)
+testesAllFiveComb <- read.table(file = "2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/002-Protein/Protein_AllFivePreps_batchCorrected.txt", sep = "\t", header = TRUE, stringsAsFactors = F)
 
 # Our protein matrix is log transformed and so, we exponentiate to satisfy non negativity for LIGER
 testesAllFiveComb <- 2^testesAllFiveComb
 
 ### Read in variable features selected via correlation vector analysis
-corrVect_pDIA <- read.table(file = "/Users/saadkhan/Desktop/allOurThingsTemp/testis/LIGER/propGetVarGenes_250922/pDIAIncludedCorrVect_unimpThresh_filtered_BCUseImputed_scTransAllRNAIntegrated.csv", sep = "\t", header = TRUE, stringsAsFactors = F)
+corrVect_pDIA <- read.table(file = "2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/geneProducts_fromCorrelationVectorAnalysis_LigerFeatureSpace.csv", sep = "\t", header = TRUE, stringsAsFactors = F)
 
 
 ### Teensy bit of preprocess and just making sure to have failsafes in case of random exports
@@ -199,7 +199,7 @@ clusterToMainCell <- clusterToMainCell %>%
 # So, there is a difference here, I have not included the workflow that we used for the NN celltypes, as we haven't fully benchmarked and worked that through and so best to leave it for now, plz.ignore
 clusterToMainCell_protOut <- clusterToMainCell %>% dplyr::select(Dataset, Cluster,id,cellType)
 
-write.table(rnaAnot_work, "2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/Protein_cellTypeLabels_postAlignment.txt", sep = "\t")
+write.table(clusterToMainCell_protOut, "2024_Khan.Elcheikhali_testes_rPTR/002-singleCellMatrices/003-alignmentOutputs/Protein_cellTypeLabels_postAlignment.txt", sep = "\t")
 
 
 

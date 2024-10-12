@@ -9,7 +9,7 @@ library(Hmisc)
 
 ### Load GO testing results object, available in google drive, here: 
 # the object name is: test_res
-load(".../filtered_go_rptr_test.RData")
+load("2024_Khan.Elcheikhali_testes_rPTR/003-BayesPGOutpt/001-unfiltered/filtered_go_rptr_test.RData")
 
 ### Filter/preprocess 
 # for the figure it was: respiratory chain complex containing GO terms across the Spermatogonial cell types only
