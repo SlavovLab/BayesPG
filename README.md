@@ -16,7 +16,7 @@ The workflow is divided into three main stages:
    Scripts for generating, processing and working with single-cell matrices (protein and mRNA). This stage includes:
    - Normalization and batch correction.
    - Feature selection for dataset alignment using correlation vector analysis.
-   - Alignment using **LIGER** and validation of alignment results.
+   - Alignment using **LIGER** and validation of alignment results (**Extended Data Figure 2** in manuscript).
    - Analysis of post-translationally modified proteins within clusters and across single cells (**Figure 6** in manuscript).
 
 3. **Running BayesPG on Cluster-Level Data** (`003-BayesPG`)  
