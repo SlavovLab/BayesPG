@@ -8,7 +8,7 @@ library(ggtext)
 ### Read in data
 # We read in the peptide level matrix from whichever prep we'd like to do this analysis for, here the example is using the first data/npop1
 peptideLevel_df <- read.table("2024_Khan.Elcheikhali_testes_rPTR/001-MSData/001-searchedFiles/npop1_peptideMatrix.PTMs_NoImpNoBCByMSRun.txt", header = TRUE, stringsAsFactors = F, sep = "\t")
-peptideLevelMatrix <- trem_preMelt %>% dplyr::select(-c(pep,prot)) %>% as.matrix
+peptideLevelMatrix <- peptideLevel_df %>% dplyr::select(-c(pep,prot)) %>% as.matrix
 
 # Read in LIGER assigned celltypes and assign/process
 nPop_cellIds_all <- read.table(file = "2024_Khan.Elcheikhali_testes_rPTR/002-SingleCellMatrices/003-alignmentOutputs/Protein_cellTypeLabels_postAlignment.txt", sep = "\t", header = TRUE, stringsAsFactors = F)
