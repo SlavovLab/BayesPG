@@ -1,14 +1,133 @@
 ##### Script to carry out PTM/Phospho analysis from Figure 6 in the Manuscript
 ### Broadly, each section of the script has to do with making panels b,c,d
 library(tidyverse)
+library(reshape2)
 library(seqinr)
 library(ggtext)
+library(Hmisc)
+library(ggdendro)
+library(ggpubr)
+library(patchwork)
+library(sva)
+
+## Defining our still sterrible hknn function for imputation - it's just very slow; one day, one day I'll come back for you. # K - nearest neighbors imputation
+
+hknn<-function(dat, k){
+  
+  # Create a copy of the data, NA values to be filled in later
+  dat.imp<-dat
+  
+  # Calculate similarity metrics for all column pairs (default is Euclidean distance)
+  dist.mat<-as.matrix( dist(t(dat)) )
+  #dist.mat<- 1-as.matrix(cor((dat), use="pairwise.complete.obs"))
+  
+  #dist.mat<-as.matrix(as.dist( dist.cosine(t(dat)) ))
+  
+  # Column names of the similarity matrix, same as data matrix
+  cnames<-colnames(dist.mat)
+  
+  # For each column in the data... 
+  for(X in cnames){
+    
+    # Find the distances of all other columns to that column 
+    distances<-dist.mat[, X]
+    
+    # Reorder the distances, smallest to largest (this will reorder the column names as well)
+    distances.ordered<-distances[order(distances, decreasing = F)]
+    
+    # Reorder the data matrix columns, smallest distance to largest from the column of interest
+    # Obviously, first column will be the column of interest, column X
+    dat.reordered<-dat[ , names(distances.ordered ) ]
+    
+    # Take the values in the column of interest
+    vec<-dat[, X]
+    
+    # Which entries are missing and need to be imputed...
+    na.index<-which( is.na(vec) )
+    
+    # For each of the missing entries (rows) in column X...
+    for(i in na.index){
+      
+      # Find the most similar columns that have a non-NA value in this row
+      closest.columns<-names( which( !is.na(dat.reordered[i, ])  ) )
+      
+      #print(length(closest.columns))
+      
+      # If there are more than k such columns, take the first k most similar
+      if( length(closest.columns)>k ){
+        
+        # Replace NA in column X with the mean the same row in k of the most similar columns
+        vec[i]<-mean( dat[ i, closest.columns[1:k] ] )
+        
+      }
+      
+      
+      # If there are less that or equal to k columns, take all the columns
+      if( length(closest.columns)<=k ){
+        
+        # Replace NA in column X with the mean the same row in all of the most similar columns
+        vec[i]<-mean( dat[ i, closest.columns ] )
+        
+      }
+      
+      
+    }
+    
+    # Populate a the matrix with the new, imputed values
+    dat.imp[,X]<-vec
+    
+  }
+  
+  return(dat.imp)
+  
+}
 
 
 ### Read in data
-# We read in the peptide level matrix from whichever prep we'd like to do this analysis for, here the example is using the first data/npop1
-peptideLevel_df <- read.table("2024_Khan.Elcheikhali_testes_rPTR/001-MSData/001-searchedFiles/npop1_peptideMatrix.PTMs_NoImpNoBCByMSRun.txt", header = TRUE, stringsAsFactors = F, sep = "\t")
-peptideLevelMatrix <- peptideLevel_df %>% dplyr::select(-c(pep,prot)) %>% as.matrix
+# We read in the peptide level matrix from whichever prep we'd like to do this analysis for, here the example is using the first and second datasets ; npops 1 and 2
+npop1_peptideLevel_df <- read.table("2024_Khan.Elcheikhali_testes_rPTR/002-SingleCellMatrices/002-Protein/npop1/npop1_peptideMatrix.PTMs_NoImpNoBCByMSRun.txt", header = TRUE, stringsAsFactors = F, sep = "\t")
+npop1_peptideLevelMatrix <- npop1_peptideLevel_df %>% dplyr::select(-c(pep,prot)) %>% as.matrix
+
+npop2_peptideLevel_df <- read.table("2024_Khan.Elcheikhali_testes_rPTR/002-SingleCellMatrices/002-Protein/npop1/npop2_peptideMatrix.PTMs_NoImp.NoBC.txt", header = TRUE, stringsAsFactors = F, sep = "\t")
+npop2_peptideLevelMatrix <- npop2_peptideLevel_df %>% dplyr::select(-c(pep,prot)) %>% as.matrix
+
+### Preprocess matrices and batch correct
+# impute at peptide level, correct, unimpute
+colnames(npop1_peptideLevelMatrix) <- paste("One", colnames(npop1_peptideLevelMatrix), sep = "_")
+colnames(npop2_peptideLevelMatrix) <- paste("Two", colnames(npop2_peptideLevelMatrix), sep = "_")
+
+# intersect and subset to have same pepetides
+intProt <- Reduce(intersect, list(rownames(npop1_peptideLevelMatrix),rownames(npop2_peptideLevelMatrix)))
+
+testesOne_int_unimp <- npop1_peptideLevelMatrix[which(rownames(npop1_peptideLevelMatrix) %in% intProt),]
+testesTwo_int_unimp <- npop2_peptideLevelMatrix[which(rownames(npop2_peptideLevelMatrix) %in% intProt),]
+mergePepLevel_unimp <- as.matrix(cbind(testesOne_int_unimp, testesTwo_int_unimp))
+
+# impute
+npop1_peptideLevelMatrix_imp <- hknn(npop1_peptideLevelMatrix, 3)
+npop2_peptideLevelMatrix_imp <- hknn(npop2_peptideLevelMatrix, 3)
+
+testesOne_int <- npop1_peptideLevelMatrix_imp[which(rownames(npop1_peptideLevelMatrix_imp) %in% intProt),]
+testesTwo_int <- npop2_peptideLevelMatrix_imp[which(rownames(npop2_peptideLevelMatrix_imp) %in% intProt),]
+mergePepLevel <- as.matrix(cbind(testesOne_int, testesTwo_int))
+
+# Batch correct using ComBat
+mergeProt_ref <- mergePepLevel
+mergeProt <- mergeProt_ref
+mergeProt[is.na(mergeProt)] <- 0
+mergeProt[mergeProt == -Inf] <- 0
+
+mergeProt_combat <- reshape2::melt(mergeProt, varnames = c("Protein", "id"))
+mergeProt_combat <- mergeProt_combat %>% dplyr::mutate("prep" = ifelse(grepl("One", id), "Npop1", ifelse(grepl("Two", id), "Npop2", ifelse(grepl("Three", id), "Npop3", ifelse(grepl("Four", id), "Npop4", "Npop5")))))
+
+batch.covs_mergeProt <- mergeProt_combat$prep[match(colnames(mergeProt), mergeProt_combat$id)]
+mergeProt_batch <- ComBat(mergeProt, batch=batch.covs_mergeProt)
+mergeProt_batch_ref <- mergeProt_batch
+
+mergeProt_batch[is.na(mergePepLevel_unimp)] <- NA
+
+#write.table(mergeProt_batch, "2024_Khan.Elcheikhali_testes_rPTR/002-SingleCellMatrices/002-Protein/Protein_npop1And2_peptideMatrix.PTMs_NoImpBCByPrep.txt", sep = "\t", row.names = TRUE)
+
 
 # Read in LIGER assigned celltypes and assign/process
 nPop_cellIds_all <- read.table(file = "2024_Khan.Elcheikhali_testes_rPTR/002-SingleCellMatrices/003-alignmentOutputs/Protein_cellTypeLabels_postAlignment.txt", sep = "\t", header = TRUE, stringsAsFactors = F)
@@ -31,8 +150,9 @@ Prot_to_Gene_map <- data.frame(Protein = unlist(lapply(strsplit(unlist(lapply(sp
 Prot_to_Gene_map$Gene <-gsub("GN=","", Prot_to_Gene_map$Gene)
 
 # Esepcially for shotgun DDA, this tends to be dataset specific
-pep_ProtMap <- trem_preMelt %>% dplyr::select(c(pep,prot)) %>% unique
-
+pep_ProtMap1 <- npop1_peptideLevel_df %>% rownames_to_column() %>% dplyr::select(c(pep,prot)) %>% distinct
+pep_ProtMap2 <- npop2_peptideLevel_df %>%  rownames_to_column() %>% dplyr::select(c(pep,prot)) %>% distinct
+pep_ProtMap <- rbind(pep_ProtMap1, pep_ProtMap2) %>% distinct
 # List of kinases...from papers, interwebs etc 
 phosphorylation_genes <- c(
   "MAP3K10", "MAP3K12", "PRKAR2A", "PPP1CC", "MAPK3", "PRKACB", "PPP2R1A",
@@ -54,11 +174,12 @@ z_score <- function(x) {
 # Get in gene names
 t3m_GN <- peptideLevel_df[,colnames(peptideLevel_df) %in% c(allSSCCells_oneCT,"pep","prot")] %>% left_join(Prot_to_Gene_map, by = c("prot" = "Protein"))
 
-# to ensure continuity, *sigh*
-t3m_GN_filt <- t3m_GN %>% 
-  column_to_rownames(var = "pep") %>% 
-  dplyr::select(-c(prot,Gene)) %>% 
-  as.matrix
+# to ensure continuity, *sigh* ; this is an unfortunate bit - make pep column unique
+t3m_GN_filt <- t3m_GN %>%
+  dplyr::mutate(pep = make.unique(as.character(pep))) %>% 
+  column_to_rownames(var = "pep") %>%
+  dplyr::select(-c(prot, Gene)) %>%
+  as.matrix()
 
 # corelations and number of observations
 t3m_GN_filt_corrs <- Hmisc::rcorr(t(t3m_GN_filt))$r %>% 
@@ -91,9 +212,9 @@ phosphoStuffs <- t3m_GN_filt_corrs_obs %>%
 # so terrible, I'm sorry, idiotrepetitionville.
 # First, for kinases
 t3m_GN_ourPlayers_kinaseProts <- t3m_GN %>% filter(Gene %in% phosphorylation_genes) %>% pull(pep) %>% unique
-t3m_GN_ourPlayers_kinases <-t3[rownames(t3) %in% t3m_GN_ourPlayers_getSeqs,]
+t3m_GN_ourPlayers_kinases <-mergeProt_batch[rownames(mergeProt_batch) %in% t3m_GN_ourPlayers_kinaseProts,]
 t3m_GN_ourPlayers_kinases_melt <- reshape2::melt(t3m_GN_ourPlayers_kinases) %>% 
-  mutate(Var2 = paste0("One_",Var2)) %>% 
+  #mutate(Var2 = paste0("One_",Var2)) %>% 
   left_join(nPop_cellIds_all, by = c("Var2" = "id")) %>% 
   na.omit %>% 
   mutate(Var1 = as.character(Var1))
@@ -108,9 +229,9 @@ t3m_GN_ourPlayers_kinases_melt_filt_protLevel <- t3m_GN_ourPlayers_kinases_melt_
 
 # Now for PhosphoPeps
 t3m_GN_ourPlayers_phosphorylatedPeps <- t3m_GN %>% filter(pep %in% phosphoStuffs) %>% pull(pep) %>% unique 
-t3m_GN_ourPlayers_phosPeps <-t3[rownames(t3) %in% t3m_GN_ourPlayers_phosphorylatedPeps,]
+t3m_GN_ourPlayers_phosPeps <-mergeProt_batch[rownames(mergeProt_batch) %in% t3m_GN_ourPlayers_phosphorylatedPeps,]
 t3m_GN_ourPlayers_phosPeps_melt <- reshape2::melt(t3m_GN_ourPlayers_phosPeps) %>% 
-  mutate(Var2 = paste0("One_",Var2)) %>% 
+  #mutate(Var2 = paste0("One_",Var2)) %>% 
   left_join(nPop_cellIds_all, by = c("Var2" = "id")) %>% 
   na.omit %>% 
   mutate(Var1 = as.character(Var1))
@@ -124,6 +245,7 @@ t3m_GN_ourPlayers_melt_obsFilt_forMerge <- t3m_GN_ourPlayers_phosPeps_melt_filt 
   rename(Gene = Var1) %>% 
   dplyr::select(Gene, Var2, value) %>% 
   rbind(t3m_GN_ourPlayers_kinases_melt_filt_protLevel)
+
 
 
 
@@ -228,7 +350,7 @@ average_abundance_wPVals <- average_abundance_wPVals %>%
   group_by(Gene) %>%
   mutate(avg_value_z = z_score(avg_value)) %>%
   ungroup() %>% 
-  filter(! Gene %in% c("_EGILKT(Phospho (STY))AK_2", "PRDX4"))
+  filter(!Gene %in% c("_EGILKT(Phospho (STY))AK_2", "PRDX4", "PRKACB"))
 
 # back to wide
 average_abundance_wPVals_cast <- average_abundance_wPVals %>%
@@ -252,7 +374,7 @@ dendro_data <- ggdendro::dendro_data(gene_dendro)
 
 # Order 
 gene_order <- gene_clust$order
-ordered_genes <- rownames(results_matrix)[gene_order]
+ordered_genes <- rownames(average_abundance_wPVals_mat)[gene_order]
 
 # Reorder the original results data frame based on clustering and factor things for plotting
 average_abundance_wPVals <- average_abundance_wPVals %>%
@@ -266,12 +388,12 @@ average_abundance_wPVals <- average_abundance_wPVals %>%
 ## Exceptionally tedious process to programmatically label phosphosites
 # Pull phosphopeptide, format and do preliminary processing
 phosphoPep_genes <- t3m_GN %>% filter(pep %in% phosphoStuffs) %>% dplyr::select(pep, Gene) %>% distinct
-phosphoPep_genes[is.na(phosphoPep_genes$Gene),]$Gene <- "ELAC1" # had to manually add this as was missing
 phosphoPep_genes$baseSeq <- gsub("\\(Phospho \\(STY\\)\\)", "", gsub("[0-9_]", "", phosphoPep_genes$pep))
 
 phosphoPep_genes <- phosphoPep_genes %>%
   mutate(phospho_aa = str_extract(pep, "\\w(?=\\(Phospho \\(STY\\)\\))")) %>%
   mutate(phospho_aa_pos = str_locate(baseSeq, phospho_aa)[,1])
+phosphoPep_genes[which(phosphoPep_genes$pep == "_TMT(Phospho (STY))ISSK_2"),]$phospho_aa_pos <- 3 # Ugh, manually handled the case of tow phosphosites in 1 peptide. sopoorsopoor. 
 
 # function to clean up and extract gene name
 extract_gene_name <- function(x) {
@@ -298,11 +420,6 @@ phosphoPep_genes_interim <- phosphoPep_genes %>%
 
 phosphoPep_genes_interim[phosphoPep_genes_interim$Gene == "METTL6",]$protein_seq <- "MASLQRKGLQARILTSEEEEKLKRDQTLVSDFKQQKLEQEAQKNWDLFYKRNSTNFFKDRHWTTREFEELRSCREFEDQKLTMLEAGCGVGNCLFPLLEEDPNIFAYACDFSPRAIEYVKQNPLYDTERCKVFQCDLTKDDLLDHVPPESVDVVMLIFVLSAVHPDKMHLVLQNIYKCHGCSSELRQPWDKDDFAVTWDPWSPAIRLLGEGLRHVHETLKQALYCTIFTQHLEGTDLAPALEELTSLLWCQ"
 phosphoPep_genes_interim[phosphoPep_genes_interim$Gene == "METTL6",]$Gene <- "METTL6-3"
-
-
-phosphoPep_genes_interim[phosphoPep_genes_interim$Gene == "SMARCD2",]$protein_seq <-  "RPGMSPGNRMPMAGLQVGPPAGSPFGAAAPLRPGMPPTMMDPFRKRLLVPQAQPPMPAQRRGLKRRKMADKVLPQRVSVKRTPGRPAQWPPWDPGACSRVSGVHGSLGF"
-phosphoPep_genes_interim[phosphoPep_genes_interim$Gene == "SMARCD2",]$Gene <- "SMARCD2_part"
-
 
 ## A nice, simple join and then, get positions and format etc
 phosphoPep_genes_final <- phosphoPep_genes_interim %>% 
@@ -399,8 +516,8 @@ ggplot(segment(dendro_data)) +
 ### Panel c, Correlation scatters for select phosphopeptide and kinase pair
 # some respite/fairly straightforward barring final plot on this one
 # selected pair of interest and reformat
-kinaseToChex <- "STK31"
-phosPepProt <- "SEMA3F T522p"
+kinaseToChex <- "TSSK3"
+phosPepProt <- "METTL6-3 T218p"
 phosPepProt_forPlot <- str_replace(phosPepProt, "(\\S+)\\s+(.*)", "\\1 **\\2**")
 phosPepToChex <- names(replacement_vector[replacement_vector == phosPepProt])
 
@@ -479,127 +596,105 @@ St_only <- nPop_cellIds_all %>% filter(cellType %in% "St") %>% pull(id)
 cell_types <- list(SPG = SPG_only, SPC = SPC_only, St = St_only)
 
 # ready for le loups
-cor_matrices_melted <- list()
+corMat_melt <- list()
+nPair_melt <- list()  
 
-# loups to compute matrices
+# loups to compute matrices = for each cell type, make matrix -> corr + pairwise obs -> melt both for later joins
 for (cell_type in names(cell_types)) {
   
-  data_matrix <- t3m_GN_ourPlayers_melt_obsFilt_forMerge %>%
+  cellType_mat <- t3m_GN_ourPlayers_melt_obsFilt_forMerge %>%
     filter(Var2 %in% cell_types[[cell_type]]) %>% 
     dplyr::select(Gene, Var2, value) %>%
     spread(key = Var2, value = value) %>%
     column_to_rownames(var = "Gene")
   
-  cor_matrix <- rcorr(t(data_matrix))$r
+  rcorr_result <- rcorr(t(cellType_mat))
+  corMat <- rcorr_result$r
+  nPair <- rcorr_result$n
   
-  cor_matrices_melted[[cell_type]] <- reshape2::melt(cor_matrix[grepl("^_", rownames(cor_matrix)), !grepl("^_", colnames(cor_matrix))]) %>%
-    mutate(cellType = cell_type) 
+  corMat_melt[[cell_type]] <- reshape2::melt(corMat[grepl("^_", rownames(corMat)), !grepl("^_", colnames(corMat))]) %>%
+    mutate(cellType = cell_type)
+  
+  nPair_melt[[cell_type]] <- reshape2::melt(nPair[grepl("^_", rownames(nPair)), !grepl("^_", colnames(nPair))]) %>%
+    mutate(cellType = cell_type)
 }
 
-allCorrs_bound <- bind_rows(cor_matrices_melted) %>%
+# Joins for all 3 celltypes and also correlatons + observations
+allCorrs_bound <- bind_rows(corMat_melt) %>%
   mutate(Var1_Var2 = paste(Var2, Var1, sep = "_"), 
          cellType = factor(cellType, levels = c("SPG", "SPC", "St")))
 
-# Reshape and convert to matrix
-cellTypeCorMat <- reshape2::dcast(allCorrs_bound, Var1_Var2 ~ cellType, value.var = "value", fill = NA) %>%
-  column_to_rownames("Var1_Var2") %>%
-  as.matrix()
+allCounts_bound <- bind_rows(nPair_melt) %>%
+  mutate(Var1_Var2 = paste(Var2, Var1, sep = "_"))
+
+allCorrs_with_counts <- left_join(allCorrs_bound, allCounts_bound, by = c("Var1_Var2", "cellType"), suffix = c("_correlation", "_n")) %>% 
+  filter(!value_correlation %in% c(-1,1), !is.na(value_correlation), value_n > 15, Var2_correlation != "PRKACB")
 
 
+## Now, we can go ahead and carry out the Fishers Analytical test for differences in correlations
+# very manual, small data so we're going to slip on by, loop is to essentially compute these correlations differences pairwise (for cell types) and get corr + nobs for each, then carry out test. 
+analyticalCorrDiff_list <- list()
 
-### OK, time for significants tests
-# Function to calculate Fisher's Z-transformation
-fisher_z_transform <- function(cor) {
-  return(0.5 * log((1 + cor) / (1 - cor)))
-}
+cellType_pairs <- list(c("SPG", "SPC"), c("SPG", "St"), c("SPC", "St"))
 
-# Function to test the significance of the difference in correlations
-test_correlation_difference_analytical <- function(cor1, cor2, n1, n2) {
-  z1 <- fisher_z_transform(cor1)
-  z2 <- fisher_z_transform(cor2)
+for (var1_var2 in unique(allCorrs_with_counts$Var1_Var2)) {
   
-  diff_z <- z1 - z2 
-  empirical_diff <- cor1 - cor2 
+  kinPepPair <- dplyr::filter(allCorrs_with_counts, Var1_Var2 == var1_var2)
   
-  se_diff <- sqrt((1 / (n1 - 3)) + (1 / (n2 - 3)))
-  
-  z_score <- abs(diff_z) / se_diff
-  
-  p_value <- 2 * (1 - pnorm(z_score))
-  
-  return(list(p_value = p_value, diff_z = diff_z, empirical_diff = empirical_diff))
-}
-
-# Function to apply the significance test for each row
-apply_significance_test_analytical <- function(mat, n1, n2, n3) {
-  results <- apply(mat, 1, function(row) {
-    cor1 <- row[1]
-    cor2 <- row[2]
-    cor3 <- row[3]
+  for (pair in cellType_pairs) {
     
-    test_12 <- test_correlation_difference_analytical(cor1, cor2, n1, n2)
-    test_23 <- test_correlation_difference_analytical(cor2, cor3, n2, n3)
-    test_13 <- test_correlation_difference_analytical(cor1, cor3, n1, n3)
+    cor1 <- kinPepPair$value_correlation[kinPepPair$cellType == pair[1]]
+    n1 <- kinPepPair$value_n[kinPepPair$cellType == pair[1]]
+    cor2 <- kinPepPair$value_correlation[kinPepPair$cellType == pair[2]]
+    n2 <- kinPepPair$value_n[kinPepPair$cellType == pair[2]]
     
-    return(c(test_12$p_value, test_12$diff_z, test_12$empirical_diff,
-             test_23$p_value, test_23$diff_z, test_23$empirical_diff,
-             test_13$p_value, test_13$diff_z, test_13$empirical_diff))
-  })
-  
-  results_df <- as.data.frame(t(results))
-  colnames(results_df) <- c("p_value_12", "diff_z_12", "empirical_diff_12",
-                            "p_value_23", "diff_z_23", "empirical_diff_23",
-                            "p_value_13", "diff_z_13", "empirical_diff_13")
-  
-  return(results_df)
+    if (length(cor1) > 0 && length(cor2) > 0) {
+      
+      r_test_result <- r.test(n = as.numeric(n1), r12 = as.numeric(cor1), 
+                              n2 = as.numeric(n2), r34 = as.numeric(cor2))
+      
+      cor_diff <- as.numeric(cor1) - as.numeric(cor2)
+      
+      analyticalCorrDiff_list[[paste(var1_var2, pair[1], pair[2], sep = "_")]] <- list(
+        Var1_Var2 = var1_var2,
+        cellType1 = pair[1],
+        cellType2 = pair[2],
+        cor1 = cor1,
+        cor2 = cor2,
+        cor_diff = cor_diff,  
+        n1 = n1,
+        n2 = n2,
+        z_value = r_test_result$z,
+        p_value = r_test_result$p
+      )
+    }
+  }
 }
 
-# For our analytical test, we set sample size for each condition to 100, there are 61 phoshosite, kinase pairs
-n1 <- n2 <- n3 <- 100
+# pull together loop outputs
+analyticalCorrDiff_df <- do.call(rbind, lapply(analyticalCorrDiff_list, as.data.frame))
 
-# Do eeet.
-significance_results_analytical <- apply_significance_test_analytical(cellTypeCorMat, n1, n2, n3)
+analyticalCorrDiff_df <- analyticalCorrDiff_df %>%
+  mutate(p_adjusted = p.adjust(p_value, method = "BH"))
 
-significance_results_analytical$Q_value_12 <- p.adjust(significance_results_analytical$p_value_12, method = "BH")
-significance_results_analytical$Q_value_23 <- p.adjust(significance_results_analytical$p_value_23, method = "BH")
-significance_results_analytical$Q_value_13 <- p.adjust(significance_results_analytical$p_value_13, method = "BH")
+## Plotting toimezs. Preprocess a bit to get labels etc as desired
+analyticalCorrDiff_df_ref <- analyticalCorrDiff_df
+#analyticalCorrDiff_df <- analyticalCorrDiff_df_ref
+analyticalCorrDiff_df <- analyticalCorrDiff_df %>% mutate(Var2 = paste0(cellType1," - ",cellType2)) %>% rename(QVal = p_adjusted, Var1 = Var1_Var2)
 
-# Post testing, manually assign significant out, etc
-phosPepKinase_corrDiffSeqs <- c(
-  "STK31__LLGEGLRHVHET(Phospho (STY))LK_3",
-  "STK31__TMT(Phospho (STY))ISSK_2",
-  "PRKDC__AEEDEILNRS(Phospho (STY))PR_3",
-  "PRDX4__QPT(Phospho (STY))MPILK_2",
-  "STK16__TMT(Phospho (STY))ISSK_2",
-  "TSSK3__LLGEGLRHVHET(Phospho (STY))LK_3",
-  "STK16__EGILKT(Phospho (STY))AK_3",
-  "STK31__SSS(Phospho (STY))PAPADIAQTVQEDLR_3",
-  "STK31__LVLRIAT(Phospho (STY))DDSK_2"
-)
-
-# our favorite munging
-significance_results_analytical_subset_QVal <- significance_results_analytical[rownames(significance_results_analytical) %in% phosPepKinase_corrDiffSeqs,] %>% dplyr::select(Q_value_12, Q_value_23, Q_value_13) %>% dplyr::rename(SPG_SPC = Q_value_12, SPC_St = Q_value_23, SPG_St = Q_value_13) %>%  as.matrix() %>% reshape2::melt() %>% dplyr::rename(QVal = value)
-
-significance_results_analytical_subset_Diffs <- significance_results_analytical[rownames(significance_results_analytical) %in% phosPepKinase_corrDiffSeqs,] %>% dplyr::select(empirical_diff_12,empirical_diff_23,empirical_diff_13) %>% dplyr::rename(SPG_SPC = empirical_diff_12, SPC_St = empirical_diff_23, SPG_St = empirical_diff_13) %>% as.matrix() %>% reshape2::melt() %>% dplyr::rename(corrDiff = value)
-
-significance_results_analytical_subset <- left_join(significance_results_analytical_subset_QVal, significance_results_analytical_subset_Diffs, by = c("Var1" = "Var1", "Var2" = "Var2"))
-
-
-## bring in proper labels
+# Use our previously worked out phosphopeptide positions, split up pair labels etc
 replacement_vector2 <- replacement_vector
 names(replacement_vector2) <- gsub("_[0-9]+", "", names(replacement_vector2))
 names(replacement_vector2) <- gsub("_", "", names(replacement_vector2))
 
-significance_results_analytical_subset$pepOnly <- unlist(lapply(str_split(significance_results_analytical_subset$Var1, "_"), '[[',3))
-significance_results_analytical_subset$protOnly <- unlist(lapply(str_split(significance_results_analytical_subset$Var1, "_"), '[[',1))
+analyticalCorrDiff_df$pepOnly <- unlist(lapply(str_split(analyticalCorrDiff_df$Var1, "_"), '[[',3))
+analyticalCorrDiff_df$protOnly <- unlist(lapply(str_split(analyticalCorrDiff_df$Var1, "_"), '[[',1))
 
-significance_results_analytical_subset$pepFormatted <- replacement_vector2[significance_results_analytical_subset$pepOnly]
+analyticalCorrDiff_df$pepFormatted <- replacement_vector2[analyticalCorrDiff_df$pepOnly]
+analyticalCorrDiff_df$pepProtComboFormat <- paste(analyticalCorrDiff_df$protOnly, analyticalCorrDiff_df$pepFormatted, sep = "_")
 
-significance_results_analytical_subset$pepProtComboFormat <- paste(significance_results_analytical_subset$protOnly, significance_results_analytical_subset$pepFormatted, sep = "_")
-
-
-# Further plotting formatting
-significance_results_analytical_subset <- significance_results_analytical_subset %>%
+# Small stuff again, aesthetics and things
+analyticalCorrDiff_df <- analyticalCorrDiff_df %>%
   mutate(
     pepProtComboFormat = str_replace(pepProtComboFormat, "_", "<>"),  
     Var2 = str_replace_all(Var2, "_", " - "),  
@@ -607,14 +702,22 @@ significance_results_analytical_subset <- significance_results_analytical_subset
     Var2_order = factor(Var2, levels = c("SPG - SPC","SPC - St","SPG - St"))
   ) %>% arrange(Var2_order)
 
+analyticalCorrDiff_df <- analyticalCorrDiff_df %>% mutate(combObs = n1+n2)
+result_df_sigPepProts <- analyticalCorrDiff_df %>% filter(QVal <= 0.15) %>% pull(Var1)
+analyticalCorrDiff_df <- analyticalCorrDiff_df %>% filter(Var1 %in% result_df_sigPepProts)
+
+analyticalCorrDiff_df <- analyticalCorrDiff_df %>%
+  group_by(pepProtComboFormat) %>%
+  filter(all(c("SPG - SPC", "SPC - St", "SPG - St") %in% Var2)) %>%
+  ungroup()
 
 # *phew* plot
-ggplot(significance_results_analytical_subset, aes(x = Var2_order, y = pepProtComboFormat, size = -log10(QVal), fill = corrDiff)) +
+ggplot(analyticalCorrDiff_df, aes(x = Var2_order, y = pepProtComboFormat, size = -log10(QVal), fill = cor_diff)) +
   geom_point(shape = 21) +
-  scale_size_continuous(range = c(4, 20)) +  
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0, space = "Lab", breaks = c(-0.5,0,0.5)) +
+  scale_size_continuous(range = c(4, 20), breaks = c(0.3, 0.6,1.2)) +  
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = -0.25, space = "Lab", breaks = c(-0.5,0,0.5)) +
   theme_minimal() +
-  scale_x_discrete(expand = c(0.2, 0)) +  
+  scale_x_discrete(expand = c(0.4, 0)) +  
   scale_y_discrete(expand = c(0.05, 0)) +  
   coord_fixed(ratio = 1) + 
   theme(
@@ -627,11 +730,9 @@ ggplot(significance_results_analytical_subset, aes(x = Var2_order, y = pepProtCo
     legend.title = element_text(size = 24),
     legend.text = element_text(size = 22),
     strip.text = element_text(size = 22, face = "bold"),
-    legend.justification = c(0.85, 0.5),  
+    legend.justification = c(0.75, 0.5),  
     legend.margin = margin(t = 10),  
     legend.box.margin = margin(t = 10) 
   ) +
   labs(size = "-Log10(QValue)", fill = "CorrDiff") +
-  guides(size = guide_legend(order = 1), fill = guide_colorbar(order = 2))
-
-
+  guides(size = guide_legend(order = 1), fill = guide_colorbar(order = 2)) 
